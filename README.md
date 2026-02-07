@@ -1,125 +1,157 @@
-# RAG-Minial
+# RAG-Lite
 
-A minimal demonstration of Retrieval-Augmented Generation (RAG) for knowledge-based question answering using cat facts.
+A lightweight, privacy-first Retrieval-Augmented Generation (RAG) system for knowledge-based question answering.
 
 ## Overview
 
-This project demonstrates a simple RAG implementation that:
-- Loads a dataset of cat facts from a text file
-- Creates embeddings using Ollama and a BGE embedding model
-- Implements semantic search using cosine similarity
-- Generates responses using a language model with retrieved context
+RAG-Lite provides a modular RAG pipeline with hybrid search capabilities, running entirely on local infrastructure via Ollama. No data leaves your environment.
 
-## Features
+## Architecture
 
-- **Simple RAG Pipeline**: Complete implementation from data loading to response generation
-- **Vector Database**: In-memory vector storage with embeddings
-- **Semantic Search**: Cosine similarity-based retrieval of relevant context
-- **Context-Aware Responses**: Language model generates answers based on retrieved knowledge
-- **Real-time Streaming**: Interactive chat interface with streaming responses
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌────────────┐
+│ Data Loader │ ──▶ │  Vector DB   │ ──▶ │  Retrieval  │ ──▶ │ Generation │
+└─────────────┘     └──────────────┘     └─────────────┘     └────────────┘
+                           │                    │
+                    Embeddings (BGE)    Hybrid Search + Rerank
+```
+
+**Components:**
+
+| Module | Description |
+|--------|-------------|
+| `data_loader` | Text file ingestion with UTF-8 encoding |
+| `vector_db` | In-memory vector storage with embeddings |
+| `retrieval` | Semantic search, BM25/TF-IDF, LLM reranking |
+| `generation` | Context-aware response generation |
+| `rag_pipeline` | Orchestration layer |
+| `config` | Environment-based configuration |
 
 ## Requirements
 
-- Python 3.x
-- [Ollama](https://ollama.ai/) installed and running locally
-- Internet connection for downloading models
-
-## Models Used
-
-- **Embedding Model**: `hf.co/CompendiumLabs/bge-base-en-v1.5-gguf`
-- **Language Model**: `hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF`
+- Python 3.8+
+- [Ollama](https://ollama.ai/) running locally
+- 4GB+ RAM (model dependent)
 
 ## Installation
 
-1. Clone this repository:
 ```bash
-git clone <repository-url>
-cd rag-minial
+# Clone repository
+git clone https://github.com/XingyuJinTI/rag-lite.git
+cd rag-lite
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Or install as package
+pip install -e .
 ```
 
-2. Install Ollama following the [official instructions](https://ollama.ai/download)
+**Pull models:**
 
-3. Pull the required models:
 ```bash
 ollama pull hf.co/CompendiumLabs/bge-base-en-v1.5-gguf
 ollama pull hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF
 ```
 
-4. Install Python dependencies:
-```bash
-pip install ollama
-```
+## Configuration
+
+All settings are configured via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EMBEDDING_MODEL` | `hf.co/CompendiumLabs/bge-base-en-v1.5-gguf` | Embedding model |
+| `LANGUAGE_MODEL` | `hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF` | Generation model |
+| `DATA_FILE` | `cat-facts.txt` | Input data file path |
+| `OLLAMA_BASE_URL` | `None` | Custom Ollama endpoint |
+| `USE_HYBRID_SEARCH` | `true` | Enable semantic + keyword search |
+| `USE_RERANKING` | `false` | Enable LLM-based reranking |
+| `USE_QUERY_EXPANSION` | `false` | Enable query expansion |
+| `RETRIEVE_TOP_N` | `3` | Final results count |
+| `RETRIEVE_K` | `20` | Candidates before reranking |
+| `KEYWORD_METHOD` | `bm25` | Keyword method: `jaccard`, `tfidf`, `bm25` |
+| `SEMANTIC_WEIGHT` | `0.7` | Semantic score weight |
+| `KEYWORD_WEIGHT` | `0.3` | Keyword score weight |
+| `BM25_K1` | `1.5` | BM25 term frequency saturation |
+| `BM25_B` | `0.75` | BM25 length normalization |
 
 ## Usage
 
-1. Start Ollama service (if not already running):
+**CLI:**
+
 ```bash
+# Ensure Ollama is running
 ollama serve
+
+# Run application
+python main.py
+# or
+rag-lite
 ```
 
-2. Run the demo:
-```bash
-python demo.py
+**Programmatic:**
+
+```python
+from rag_lite.config import Config
+from rag_lite.data_loader import load_text_file
+from rag_lite.rag_pipeline import RAGPipeline
+
+config = Config.from_env()
+pipeline = RAGPipeline(config)
+
+documents = load_text_file("your-data.txt")
+pipeline.index_documents(documents)
+
+results, response = pipeline.query("Your question here", stream=False)
+print("".join(response))
 ```
 
-3. Enter your question when prompted. The system will:
-   - Convert your question to an embedding
-   - Find the most similar cat facts using cosine similarity
-   - Retrieve the top 3 most relevant facts
-   - Generate a response using the retrieved context
+## Security Considerations
 
-## How It Works
+### Data Privacy
 
-1. **Data Loading**: Reads cat facts from `cat-facts.txt`
-2. **Embedding Generation**: Creates vector embeddings for each fact using the BGE model
-3. **Vector Database**: Stores facts and their embeddings in memory
-4. **Query Processing**: Converts user questions to embeddings
-5. **Retrieval**: Finds most similar facts using cosine similarity
-6. **Response Generation**: Uses retrieved context to generate relevant answers
+- **Local Processing**: All inference runs locally via Ollama
+- **No External APIs**: No data transmitted to third-party services
+- **In-Memory Storage**: Data persists only during runtime
+- **UTF-8 Encoding**: Consistent text handling
 
-## Project Structure
+### Access Control
 
-```
-rag-minial/
-├── demo.py          # Main RAG implementation
-├── cat-facts.txt    # Dataset of cat facts
-└── README.md        # This file
-```
+- Configure `OLLAMA_BASE_URL` for network-isolated deployments
+- Environment variables for sensitive configuration
+- No credential storage in codebase
 
-## Technical Details
+### Logging
 
-- **Vector Similarity**: Cosine similarity for semantic search
-- **Context Window**: Top 3 most relevant facts are used for generation
-- **Streaming**: Real-time response generation for better user experience
-- **Memory Efficient**: In-memory vector database suitable for small datasets
+- Structured logging via Python `logging` module
+- Configurable log levels
+- No PII logged by default
 
-## Example
+### Recommendations for Production
 
-```
-Ask me a question: How long do cats sleep?
-Retrieved knowledge:
- - (similarity: 0.85) On average, cats spend 2/3 of every day sleeping. That means a nine-year-old cat has been awake for only three years of its life.
- - (similarity: 0.72) One reason that kittens sleep so much is because a growth hormone is released only during sleep.
- - (similarity: 0.68) Cats spend nearly 1/3 of their waking hours cleaning themselves.
+1. Run Ollama behind a firewall or VPN
+2. Use dedicated service accounts
+3. Implement input validation for user queries
+4. Monitor resource usage (memory, CPU)
+5. Set appropriate file permissions on data files
+6. Consider persistent vector storage for production workloads
 
-Chatbot response: Based on the retrieved information, cats spend approximately 2/3 of every day sleeping, which means they sleep for about 16 hours per day...
-```
+## Retrieval Methods
+
+**Hybrid Search** combines:
+- **Semantic Search**: Cosine similarity on embeddings (default 70%)
+- **Keyword Search**: BM25, TF-IDF, or Jaccard matching (default 30%)
+
+**Reranking** (optional):
+- LLM-based relevance scoring
+- Improves precision at cost of latency
 
 ## Limitations
 
-- In-memory storage (data is lost when program exits)
-- Small dataset (150 cat facts)
-- Basic similarity scoring (cosine similarity only)
-- No persistent vector database
-
-## Future Improvements
-
-- Add persistent vector database (e.g., Chroma, Pinecone)
-- Implement more sophisticated retrieval methods
-- Add support for different datasets
-- Include evaluation metrics
-- Add web interface
+- In-memory storage (not suitable for large datasets)
+- Single-threaded embedding generation
+- No persistence across restarts
 
 ## License
 
-This project is for educational and demonstration purposes.
+MIT License

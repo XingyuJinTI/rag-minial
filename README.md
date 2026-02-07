@@ -11,7 +11,8 @@ RAG-Lite provides a modular RAG pipeline with hybrid search capabilities, runnin
 ```
 ┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌────────────┐
 │ Data Loader │ ──▶ │  Vector DB   │ ──▶ │  Retrieval  │ ──▶ │ Generation │
-└─────────────┘     └──────────────┘     └─────────────┘     └────────────┘
+└─────────────┘     │  (ChromaDB)  │     └─────────────┘     └────────────┘
+                    └──────────────┘
                            │                    │
                     Embeddings (BGE)    Hybrid Search + Rerank
 ```
@@ -21,8 +22,8 @@ RAG-Lite provides a modular RAG pipeline with hybrid search capabilities, runnin
 | Module | Description |
 |--------|-------------|
 | `data_loader` | Text file ingestion with UTF-8 encoding |
-| `vector_db` | In-memory vector storage with embeddings |
-| `retrieval` | Semantic search, BM25/TF-IDF, LLM reranking |
+| `vector_db` | ChromaDB-backed persistent vector storage |
+| `retrieval` | Semantic search, BM25, RRF fusion, LLM reranking |
 | `generation` | Context-aware response generation |
 | `rag_pipeline` | Orchestration layer |
 | `config` | Environment-based configuration |
@@ -58,20 +59,32 @@ ollama pull hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF
 
 All settings are configured via environment variables:
 
+**Models:**
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `EMBEDDING_MODEL` | `hf.co/CompendiumLabs/bge-base-en-v1.5-gguf` | Embedding model |
 | `LANGUAGE_MODEL` | `hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF` | Generation model |
-| `DATA_FILE` | `cat-facts.txt` | Input data file path |
 | `OLLAMA_BASE_URL` | `None` | Custom Ollama endpoint |
-| `USE_HYBRID_SEARCH` | `true` | Enable semantic + keyword search |
-| `USE_RERANKING` | `false` | Enable LLM-based reranking |
-| `USE_QUERY_EXPANSION` | `false` | Enable query expansion |
+
+**Storage:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CHROMA_PERSIST_DIR` | `./chroma_db` | ChromaDB persistence directory |
+| `CHROMA_COLLECTION` | `rag_lite` | ChromaDB collection name |
+| `DATA_FILE` | `cat-facts.txt` | Input data file path |
+
+**Retrieval:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
 | `RETRIEVE_TOP_N` | `3` | Final results count |
-| `RETRIEVE_K` | `20` | Candidates before reranking |
-| `KEYWORD_METHOD` | `bm25` | Keyword method: `jaccard`, `tfidf`, `bm25` |
-| `SEMANTIC_WEIGHT` | `0.7` | Semantic score weight |
-| `KEYWORD_WEIGHT` | `0.3` | Keyword score weight |
+| `RETRIEVE_K` | `50` | Candidates per search method |
+| `FUSION_K` | `20` | Candidates after RRF fusion |
+| `USE_HYBRID_SEARCH` | `true` | Enable hybrid search (semantic + BM25 + RRF) |
+| `USE_RERANKING` | `false` | Enable LLM-based reranking |
+| `RRF_K` | `60` | RRF constant (when hybrid enabled) |
 | `BM25_K1` | `1.5` | BM25 term frequency saturation |
 | `BM25_B` | `0.75` | BM25 length normalization |
 
@@ -106,51 +119,66 @@ results, response = pipeline.query("Your question here", stream=False)
 print("".join(response))
 ```
 
-## Security Considerations
+## Retrieval
 
-### Data Privacy
+**Hybrid Search with RRF** (default, `USE_HYBRID_SEARCH=true`):
 
-- **Local Processing**: All inference runs locally via Ollama
-- **No External APIs**: No data transmitted to third-party services
-- **In-Memory Storage**: Data persists only during runtime
-- **UTF-8 Encoding**: Consistent text handling
+```
+Query
+  │
+  ├──▶ Semantic Search (ChromaDB HNSW) ──▶ top 50
+  │                                           │
+  └──▶ BM25 Keyword Search ───────────▶ top 50
+                                              │
+                                        RRF Fusion
+                                              │
+                                        top 20 (fusion_k)
+                                              │
+                                   (optional LLM rerank)
+                                              │
+                                        top 3 (top_n)
+```
 
-### Access Control
+- **Semantic**: ChromaDB's HNSW index (O(log n))
+- **Keyword**: BM25 (industry standard)
+- **Fusion**: RRF combines rankings without weight tuning
 
-- Configure `OLLAMA_BASE_URL` for network-isolated deployments
-- Environment variables for sensitive configuration
-- No credential storage in codebase
-
-### Logging
-
-- Structured logging via Python `logging` module
-- Configurable log levels
-- No PII logged by default
-
-### Recommendations for Production
-
-1. Run Ollama behind a firewall or VPN
-2. Use dedicated service accounts
-3. Implement input validation for user queries
-4. Monitor resource usage (memory, CPU)
-5. Set appropriate file permissions on data files
-6. Consider persistent vector storage for production workloads
-
-## Retrieval Methods
-
-**Hybrid Search** combines:
-- **Semantic Search**: Cosine similarity on embeddings (default 70%)
-- **Keyword Search**: BM25, TF-IDF, or Jaccard matching (default 30%)
+**Semantic Only** (`USE_HYBRID_SEARCH=false`):
+- Faster, uses only ChromaDB's HNSW index
+- Good for smaller datasets or when keyword matching isn't needed
 
 **Reranking** (optional):
 - LLM-based relevance scoring
-- Improves precision at cost of latency
+- Enable with `USE_RERANKING=true`
 
-## Limitations
+## Storage
 
-- In-memory storage (not suitable for large datasets)
-- Single-threaded embedding generation
-- No persistence across restarts
+ChromaDB provides persistent vector storage:
+
+- **Automatic Persistence**: Data survives restarts
+- **Deduplication**: Duplicate documents skipped
+- **Batch Embedding**: Efficient bulk indexing
+- **Scalability**: Up to ~1M documents
+
+Reset database:
+
+```python
+pipeline.vector_db.clear()
+```
+
+## Security
+
+- **Local Processing**: All inference via Ollama
+- **No External APIs**: Data stays local
+- **Local Persistence**: ChromaDB on local filesystem
+- **Telemetry Disabled**: ChromaDB analytics off
+
+**Production - Next steps:**
+
+1. Run Ollama behind firewall/VPN
+2. Set file permissions on `CHROMA_PERSIST_DIR`
+3. Implement input validation
+4. Monitor resource usage
 
 ## License
 

@@ -37,7 +37,8 @@ class RAGPipeline:
             embedding_model=config.model.embedding_model,
             persist_directory=config.storage.persist_directory,
             collection_name=config.storage.collection_name,
-            ollama_base_url=config.ollama_base_url
+            ollama_base_url=config.ollama_base_url,
+            max_chunk_chars=config.storage.max_chunk_chars,
         )
 
     def index_documents(self, documents: List[str], show_progress: bool = True) -> None:
@@ -58,6 +59,14 @@ class RAGPipeline:
         top_n: Optional[int] = None,
         use_hybrid_search: Optional[bool] = None,
         use_reranking: Optional[bool] = None,
+        # Advanced parameters (override config)
+        retrieve_k: Optional[int] = None,
+        fusion_k: Optional[int] = None,
+        rrf_k: Optional[int] = None,
+        rrf_weight: Optional[float] = None,
+        bm25_k1: Optional[float] = None,
+        bm25_b: Optional[float] = None,
+        rerank_weight: Optional[float] = None,
     ) -> List[Tuple[str, float]]:
         """
         Retrieve relevant chunks for a query.
@@ -65,7 +74,7 @@ class RAGPipeline:
         When hybrid is enabled (default):
         1. Semantic search via ChromaDB HNSW
         2. BM25 keyword search
-        3. RRF fusion
+        3. RRF fusion (weighted: semantic=0.7, BM25=0.3 by default)
         4. Optional LLM reranking
         
         When hybrid is disabled:
@@ -77,27 +86,43 @@ class RAGPipeline:
             top_n: Number of results to return (overrides config)
             use_hybrid_search: Use hybrid search with RRF (overrides config)
             use_reranking: Whether to use reranking (overrides config)
+            retrieve_k: Candidates from each search method (overrides config)
+            fusion_k: Candidates after RRF fusion (overrides config)
+            rrf_k: RRF constant, higher = more uniform ranking (overrides config)
+            rrf_weight: Semantic weight in RRF; BM25 gets 1 - rrf_weight (overrides config)
+            bm25_k1: BM25 term frequency saturation (overrides config)
+            bm25_b: BM25 document length normalization (overrides config)
+            rerank_weight: Weight for rerank score vs original (overrides config)
             
         Returns:
             List of (chunk, score) tuples
         """
-        top_n = top_n or self.config.retrieval.top_n
+        # Use provided values or fall back to config
+        top_n = top_n if top_n is not None else self.config.retrieval.top_n
         hybrid = use_hybrid_search if use_hybrid_search is not None else self.config.retrieval.use_hybrid_search
         rerank = use_reranking if use_reranking is not None else self.config.retrieval.use_reranking
+        retrieve_k = retrieve_k if retrieve_k is not None else self.config.retrieval.retrieve_k
+        fusion_k = fusion_k if fusion_k is not None else self.config.retrieval.fusion_k
+        rrf_k = rrf_k if rrf_k is not None else self.config.retrieval.rrf_k
+        rrf_weight = rrf_weight if rrf_weight is not None else self.config.retrieval.rrf_weight
+        bm25_k1 = bm25_k1 if bm25_k1 is not None else self.config.retrieval.bm25_k1
+        bm25_b = bm25_b if bm25_b is not None else self.config.retrieval.bm25_b
+        rerank_weight = rerank_weight if rerank_weight is not None else self.config.retrieval.rerank_weight
         
         return retrieve(
             query=query,
             vector_db=self.vector_db,
             language_model=self.config.model.language_model,
             top_n=top_n,
-            retrieve_k=self.config.retrieval.retrieve_k,
-            fusion_k=self.config.retrieval.fusion_k,
+            retrieve_k=retrieve_k,
+            fusion_k=fusion_k,
             use_hybrid_search=hybrid,
             use_reranking=rerank,
-            bm25_k1=self.config.retrieval.bm25_k1,
-            bm25_b=self.config.retrieval.bm25_b,
-            rrf_k=self.config.retrieval.rrf_k,
-            rerank_weight=self.config.retrieval.rerank_weight,
+            bm25_k1=bm25_k1,
+            bm25_b=bm25_b,
+            rrf_k=rrf_k,
+            rrf_weight=rrf_weight,
+            rerank_weight=rerank_weight,
             original_score_weight=self.config.retrieval.original_score_weight,
         )
 

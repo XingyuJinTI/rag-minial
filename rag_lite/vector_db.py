@@ -24,12 +24,18 @@ class VectorDB:
     Data persists across restarts when using a persist_directory.
     """
 
+    # Safety limit for embedding models (chars). 
+    # Very dense text (legal, code): ~1.5-2 chars/token
+    # 500 chars ~= 250-333 tokens, definitely fits 512 token models.
+    MAX_CHUNK_CHARS = 500
+
     def __init__(
         self,
         embedding_model: str,
         persist_directory: str = "./chroma_db",
         collection_name: str = "rag_lite",
-        ollama_base_url: Optional[str] = None
+        ollama_base_url: Optional[str] = None,
+        max_chunk_chars: Optional[int] = None
     ):
         """
         Initialize the vector database with ChromaDB backend.
@@ -39,10 +45,12 @@ class VectorDB:
             persist_directory: Directory for ChromaDB persistence
             collection_name: Name of the ChromaDB collection
             ollama_base_url: Optional base URL for Ollama API
+            max_chunk_chars: Maximum chars per chunk before truncation (default 800)
         """
         self.embedding_model = embedding_model
         self.persist_directory = persist_directory
         self.collection_name = collection_name
+        self.max_chunk_chars = max_chunk_chars or self.MAX_CHUNK_CHARS
         
         # Configure Ollama client if base URL is provided
         if ollama_base_url:
@@ -69,13 +77,29 @@ class VectorDB:
         """Generate a deterministic ID for a chunk."""
         return hashlib.sha256(chunk.encode()).hexdigest()[:16]
 
+    def _truncate_text(self, text: str) -> str:
+        """Truncate text to max_chunk_chars, breaking at word boundary."""
+        if len(text) <= self.max_chunk_chars:
+            return text
+        
+        # Find last space before limit
+        truncated = text[:self.max_chunk_chars]
+        last_space = truncated.rfind(' ')
+        if last_space > self.max_chunk_chars * 0.8:  # Only use if > 80% of max
+            truncated = truncated[:last_space]
+        
+        logger.debug(f"Truncated chunk from {len(text)} to {len(truncated)} chars")
+        return truncated
+
     def _get_embedding(self, text: str) -> List[float]:
         """Generate embedding for a single text."""
+        text = self._truncate_text(text)
         result = ollama.embed(model=self.embedding_model, input=text)
         return result['embeddings'][0]
 
     def _get_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts in a single call."""
+        texts = [self._truncate_text(t) for t in texts]
         result = ollama.embed(model=self.embedding_model, input=texts)
         return result['embeddings']
 
@@ -114,16 +138,34 @@ class VectorDB:
             show_progress: Whether to log progress
             batch_size: Number of chunks to embed per batch
         """
-        # Filter out chunks that already exist
-        chunk_ids = [self._generate_id(chunk) for chunk in chunks]
-        existing = self._collection.get(ids=chunk_ids)
-        existing_ids = set(existing['ids'])
+        # Generate IDs and deduplicate (same text = same ID)
+        chunk_id_map = {}  # id -> chunk (keeps first occurrence)
+        for chunk in chunks:
+            chunk_id = self._generate_id(chunk)
+            if chunk_id not in chunk_id_map:
+                chunk_id_map[chunk_id] = chunk
         
+        # Check which IDs already exist in the database (batch to avoid SQL variable limit)
+        unique_ids = list(chunk_id_map.keys())
+        existing_ids = set()
+        
+        # SQLite has a limit of ~999 variables per query, use 500 to be safe
+        check_batch_size = 500
+        for i in range(0, len(unique_ids), check_batch_size):
+            batch_ids = unique_ids[i:i + check_batch_size]
+            existing = self._collection.get(ids=batch_ids)
+            existing_ids.update(existing['ids'])
+        
+        # Filter to only new chunks
         new_chunks = [
-            (chunk, chunk_id) 
-            for chunk, chunk_id in zip(chunks, chunk_ids) 
+            (chunk_id_map[chunk_id], chunk_id) 
+            for chunk_id in unique_ids
             if chunk_id not in existing_ids
         ]
+        
+        duplicates_in_input = len(chunks) - len(unique_ids)
+        if duplicates_in_input > 0:
+            logger.info(f"Deduplicated {duplicates_in_input} duplicate chunks from input")
         
         if not new_chunks:
             logger.info("All chunks already exist in database")

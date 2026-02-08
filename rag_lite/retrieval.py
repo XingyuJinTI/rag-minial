@@ -109,29 +109,40 @@ class BM25Scorer:
 
 def reciprocal_rank_fusion(
     ranked_lists: List[List[Tuple[str, float]]],
-    k: int = 60
+    k: int = 60,
+    rrf_weight: float = 0.7
 ) -> List[Tuple[str, float]]:
     """
-    Combine multiple ranked lists using Reciprocal Rank Fusion (RRF).
+    Combine multiple ranked lists using Weighted Reciprocal Rank Fusion (RRF).
     
     RRF is a robust rank aggregation method. It doesn't require score normalization.
     
-    Formula: RRF_score(d) = Σ 1/(k + rank_i(d))
+    Formula: RRF_score(d) = Σ weight_i * 1/(k + rank_i(d))
     
     Args:
         ranked_lists: List of ranked result lists, each containing (chunk, score) tuples
         k: Ranking constant (default 60, from original RRF paper)
+        rrf_weight: Weight for semantic (first) list; BM25 (second) gets 1 - rrf_weight
+                   Default 0.7 means semantic=0.7, BM25=0.3
         
     Returns:
         List of (chunk, rrf_score) tuples, sorted by score descending
     """
     rrf_scores: Dict[str, float] = {}
     
-    for ranked_list in ranked_lists:
+    # Calculate weights: first list gets rrf_weight, second gets (1 - rrf_weight)
+    # For >2 lists, remaining lists split the second weight equally
+    if len(ranked_lists) == 2:
+        weights = [rrf_weight, 1 - rrf_weight]
+    else:
+        weights = [1.0 / len(ranked_lists)] * len(ranked_lists)
+    
+    for list_idx, ranked_list in enumerate(ranked_lists):
+        weight = weights[list_idx] if list_idx < len(weights) else weights[-1]
         for rank, (chunk, _) in enumerate(ranked_list, start=1):
             if chunk not in rrf_scores:
                 rrf_scores[chunk] = 0.0
-            rrf_scores[chunk] += 1.0 / (k + rank)
+            rrf_scores[chunk] += weight * (1.0 / (k + rank))
     
     results = [(chunk, score) for chunk, score in rrf_scores.items()]
     results.sort(key=lambda x: x[1], reverse=True)
@@ -454,6 +465,7 @@ def retrieve(
     bm25_k1: float = 1.5,
     bm25_b: float = 0.75,
     rrf_k: int = 60,
+    rrf_weight: float = 0.7,
     rerank_weight: float = 0.8,
     original_score_weight: float = 0.2,
 ) -> List[Tuple[str, float]]:
@@ -472,6 +484,7 @@ def retrieve(
         bm25_k1: BM25 k1 parameter
         bm25_b: BM25 b parameter
         rrf_k: RRF constant
+        rrf_weight: Weight for semantic in RRF (default 0.7); BM25 gets 1 - rrf_weight (0.3)
         rerank_weight: Rerank score weight
         original_score_weight: Original score weight
         
@@ -498,10 +511,11 @@ def retrieve(
         )
         logger.debug(f"BM25: {len(keyword_results)} results")
         
-        # Step 3: RRF fusion
+        # Step 3: RRF fusion (weighted: semantic gets rrf_weight, BM25 gets 1-rrf_weight)
         fused_results = reciprocal_rank_fusion(
             ranked_lists=[semantic_results, keyword_results],
-            k=rrf_k
+            k=rrf_k,
+            rrf_weight=rrf_weight
         )
         logger.debug(f"RRF fusion: {len(fused_results)} unique results")
         

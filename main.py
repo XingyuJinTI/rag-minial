@@ -1,19 +1,5 @@
 #!/usr/bin/env python3
-"""
-Main entry point for RAG-Lite CLI application.
-
-This script provides a command-line interface for the RAG system.
-
-Usage:
-    # Use default cat-facts dataset
-    python main.py
-
-    # Use RAGQArena Tech dataset (28k+ tech documents)
-    python main.py --dataset ragqa
-
-    # Use custom text file
-    python main.py --file path/to/your/data.txt
-"""
+"""RAG-Lite CLI application."""
 
 import argparse
 import logging
@@ -21,7 +7,7 @@ import sys
 from pathlib import Path
 
 from rag_lite.config import Config
-from rag_lite.data_loader import load_text_file
+from rag_lite.data_loader import load_text_file, load_ragqa_corpus
 from rag_lite.rag_pipeline import RAGPipeline
 
 # Configure logging
@@ -30,27 +16,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-
-def load_ragqa_dataset(cache_dir: str = ".") -> tuple:
-    """Load RAGQArena Tech dataset for Q&A.
-    
-    Returns:
-        Tuple of (chunks list, dataset name for collection)
-    """
-    try:
-        from evaluation.datasets import RAGQArenaDataset
-    except ImportError:
-        logger.error("RAGQArena dataset requires evaluation module.")
-        logger.info("Install with: pip install requests orjson")
-        sys.exit(1)
-    
-    logger.info("Loading RAGQArena Tech dataset (28k+ documents)...")
-    dataset = RAGQArenaDataset(cache_dir=cache_dir)
-    dataset.load()
-    
-    # Return list of document texts and dataset name
-    return dataset.get_chunks(), dataset.name
 
 
 def main():
@@ -117,14 +82,12 @@ Examples:
         config.retrieval.use_hybrid_search = True
         config.retrieval.rrf_weight = args.rrf_weight
     else:
-        # Pure semantic search by default (best for RAGQArena)
         config.retrieval.use_hybrid_search = False
     
-    # Load data based on arguments
-    collection_suffix = None  # For dataset-specific collection naming
+    # Load data
+    collection_suffix = None
     
     if args.file:
-        # Custom file
         data_file = Path(args.file)
         if not data_file.is_absolute():
             project_root = Path(__file__).parent
@@ -133,7 +96,7 @@ Examples:
         try:
             dataset = load_text_file(str(data_file))
             dataset_name = data_file.name
-            collection_suffix = data_file.stem  # Use filename without extension
+            collection_suffix = data_file.stem
         except FileNotFoundError:
             logger.error(f"Data file not found: {data_file}")
             sys.exit(1)
@@ -142,13 +105,11 @@ Examples:
             sys.exit(1)
     
     elif args.dataset == "ragqa":
-        # RAGQArena Tech dataset
-        dataset, ds_name = load_ragqa_dataset(cache_dir=args.cache_dir)
+        dataset = load_ragqa_corpus(cache_dir=args.cache_dir)
         dataset_name = "RAGQArena Tech"
-        collection_suffix = ds_name  # "ragqa_arena" - matches evaluation
+        collection_suffix = "ragqa_arena"
     
     else:
-        # Default: cat-facts
         data_file = Path(config.data_file)
         if not data_file.is_absolute():
             project_root = Path(__file__).parent
@@ -166,7 +127,7 @@ Examples:
             logger.error(f"Failed to load data file: {e}")
             sys.exit(1)
     
-    # Use dataset-specific collection (matches evaluation naming: eval_{dataset_name})
+    # Use dataset-specific collection to share index with evaluation
     if collection_suffix:
         config.storage.collection_name = f"eval_{collection_suffix}"
     
@@ -175,24 +136,20 @@ Examples:
     # Initialize pipeline
     pipeline = RAGPipeline(config)
     
-    # Check if we need to index
+    # Index if needed
     existing_count = pipeline.vector_db.size()
-    
     if existing_count > 0 and not args.reindex:
-        logger.info(f"Using existing index with {existing_count:,} documents (use --reindex to rebuild)")
+        logger.info(f"Using existing index ({existing_count:,} documents)")
     else:
         if args.reindex and existing_count > 0:
-            logger.info(f"Re-indexing {len(dataset):,} documents (clearing {existing_count:,} existing)...")
+            logger.info(f"Clearing existing index ({existing_count:,} documents)...")
             pipeline.vector_db.clear()
-        
-        # Index documents
         try:
             pipeline.index_documents(dataset, show_progress=True)
         except Exception as e:
             logger.error(f"Failed to index documents: {e}")
             sys.exit(1)
     
-    # Interactive query loop
     search_mode = "hybrid" if config.retrieval.use_hybrid_search else "semantic"
     indexed_count = pipeline.vector_db.size()
     print("\n" + "="*60)
@@ -212,24 +169,19 @@ Examples:
                 print("Goodbye!")
                 break
             
-            # Retrieve and generate
             retrieved, response_stream = pipeline.query(query, stream=True)
             
-            # Display retrieved knowledge
-            print('\nRetrieved knowledge:')
+            print('\nRetrieved:')
             for chunk, score in retrieved:
-                # Truncate long chunks for display
-                display_text = chunk.strip()
-                if len(display_text) > 200:
-                    display_text = display_text[:200] + "..."
+                display_text = chunk.strip()[:200]
+                if len(chunk.strip()) > 200:
+                    display_text += "..."
                 print(f' - (score: {score:.3f}) {display_text}')
             
-            # Display response
-            print('\nChatbot response:')
+            print('\nResponse:')
             for chunk in response_stream:
                 print(chunk, end='', flush=True)
-            print()  # New line at the end
-            print()  # Extra spacing
+            print('\n')
             
         except KeyboardInterrupt:
             print("\n\nInterrupted by user. Goodbye!")

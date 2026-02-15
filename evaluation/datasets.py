@@ -1,21 +1,12 @@
-"""
-Dataset loaders for RAG evaluation.
-
-This module provides a flexible dataset abstraction that makes it easy to:
-1. Swap between different datasets (cat-facts, RAGQArena)
-2. Access ground truth for evaluation
-3. Chunk documents appropriately per dataset type
-
-Supported datasets:
-- cat_facts: Simple text file with one fact per line (no ground truth Q&A)
-- ragqa_arena: RAGQArena Tech dataset - tech Q&A with 28k+ documents
-"""
+"""Dataset loaders for RAG evaluation."""
 
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Optional, Any
+
+from rag_lite.data_loader import load_text_file, load_ragqa_corpus, _download_file
 
 logger = logging.getLogger(__name__)
 
@@ -97,12 +88,7 @@ class BaseDataset(ABC):
 
 
 class CatFactsDataset(BaseDataset):
-    """
-    Simple cat facts dataset from a text file.
-    One fact per line, no ground truth Q&A.
-    
-    Good for testing indexing and basic retrieval without evaluation metrics.
-    """
+    """Simple cat facts dataset. One fact per line, no ground truth Q&A."""
     
     def __init__(self, file_path: str = "cat-facts.txt", **kwargs):
         super().__init__(name="cat_facts", **kwargs)
@@ -110,53 +96,18 @@ class CatFactsDataset(BaseDataset):
     
     def load(self) -> "CatFactsDataset":
         """Load cat facts from text file."""
-        path = Path(self.file_path)
-        
-        if not path.exists():
-            raise FileNotFoundError(f"Cat facts file not found: {self.file_path}")
-        
-        with open(path, 'r', encoding='utf-8') as f:
-            lines = [line.strip() for line in f if line.strip()]
-        
+        lines = load_text_file(self.file_path)
         self.documents = [
             Document(text=line, doc_id=f"cat_{i:04d}")
             for i, line in enumerate(lines)
         ]
-        
-        # No ground truth Q&A for this dataset
         self.eval_examples = []
         self._loaded = True
-        
-        logger.info(f"Loaded {len(self.documents)} cat facts")
         return self
 
 
 class RAGQArenaDataset(BaseDataset):
-    """
-    RAGQArena Tech Dataset - Tech Q&A with corpus.
-    
-    A high-quality benchmark for RAG evaluation featuring:
-    - 28,436 tech documents (corpus) - always fully indexed
-    - 2,000+ Q&A pairs with ground truth responses and gold doc IDs
-    - Natural language tech questions (StackOverflow-style)
-    
-    This dataset is well-suited for corpus-level retrieval evaluation
-    because questions are specific and discriminating.
-    
-    Source: https://huggingface.co/dspy/cache
-    
-    Requires: pip install requests orjson
-    
-    Example:
-        >>> # Full benchmark (all docs, all evals)
-        >>> dataset = RAGQArenaDataset()
-        >>> dataset.load()
-        >>> chunks = dataset.get_chunks()  # 28k docs for indexing
-        >>> examples = dataset.get_eval_examples()  # ~600 eval examples (dev split)
-        
-        >>> # Faster run with limited eval examples
-        >>> dataset = RAGQArenaDataset(max_eval=100)
-    """
+    """RAGQArena Tech Dataset - Tech Q&A with corpus for retrieval evaluation."""
     
     EXAMPLES_URL = "https://huggingface.co/dspy/cache/resolve/main/ragqa_arena_tech_examples.jsonl"
     CORPUS_URL = "https://huggingface.co/dspy/cache/resolve/main/ragqa_arena_tech_corpus.jsonl"
@@ -166,20 +117,10 @@ class RAGQArenaDataset(BaseDataset):
         max_eval: Optional[int] = None,
         max_doc_chars: int = 6000,
         cache_dir: Optional[str] = None,
-        split_ratio: tuple = (0.2, 0.3, 0.5),  # train, dev, test
-        use_split: str = "dev",  # Which split to use for evaluation
+        split_ratio: tuple = (0.2, 0.3, 0.5),
+        use_split: str = "dev",
         **kwargs
     ):
-        """
-        Initialize RAGQArena dataset.
-        
-        Args:
-            max_eval: Maximum evaluation examples (None = all ~600 in dev split)
-            max_doc_chars: Truncate documents longer than this (default 6000)
-            cache_dir: Directory to cache downloaded files (default: current dir)
-            split_ratio: Tuple of (train, dev, test) ratios
-            use_split: Which split to use for evaluation ("train", "dev", "test")
-        """
         super().__init__(name="ragqa_arena", **kwargs)
         self.max_eval = max_eval
         self.max_doc_chars = max_doc_chars
@@ -187,65 +128,33 @@ class RAGQArenaDataset(BaseDataset):
         self.split_ratio = split_ratio
         self.use_split = use_split
     
-    def _download_file(self, url: str, filename: str) -> Path:
+    def _ensure_downloaded(self, url: str, filename: str) -> Path:
         """Download file if not cached."""
-        import requests
-        
         filepath = self.cache_dir / filename
-        
-        if filepath.exists():
-            logger.info(f"Using cached file: {filepath}")
-            return filepath
-        
-        logger.info(f"Downloading {filename}...")
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
-        
-        with open(filepath, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        
-        logger.info(f"Downloaded to {filepath}")
+        if not filepath.exists():
+            _download_file(url, filepath)
         return filepath
     
     def load(self) -> "RAGQArenaDataset":
-        """Load RAGQArena dataset from HuggingFace."""
-        try:
-            import orjson
-        except ImportError:
-            # Fallback to standard json
-            import json as orjson
-            orjson.loads = lambda x: __import__('json').loads(x)
+        """Load RAGQArena dataset."""
+        import json
         
         # Download files
-        examples_path = self._download_file(self.EXAMPLES_URL, "ragqa_arena_tech_examples.jsonl")
-        corpus_path = self._download_file(self.CORPUS_URL, "ragqa_arena_tech_corpus.jsonl")
+        examples_path = self._ensure_downloaded(self.EXAMPLES_URL, "ragqa_arena_tech_examples.jsonl")
+        corpus_path = self._ensure_downloaded(self.CORPUS_URL, "ragqa_arena_tech_corpus.jsonl")
         
-        # Load corpus (documents for indexing) - always load ALL documents
-        logger.info("Loading corpus (all documents)...")
-        with open(corpus_path, 'r', encoding='utf-8') as f:
-            corpus_lines = f.readlines()
-        
-        self.documents = []
-        for i, line in enumerate(corpus_lines):
-            if line.strip():
-                item = orjson.loads(line)
-                text = item.get('text', '')[:self.max_doc_chars]
-                if text:
-                    self.documents.append(Document(
-                        text=text,
-                        doc_id=f"ragqa_{i:05d}",
-                        metadata={"source": "ragqa_arena_tech"}
-                    ))
-        
+        # Load corpus using rag_lite's loader, wrap in Document objects for evaluation
+        corpus_texts = load_ragqa_corpus(str(self.cache_dir), max_chars=self.max_doc_chars)
+        self.documents = [
+            Document(text=text, doc_id=f"ragqa_{i:05d}")
+            for i, text in enumerate(corpus_texts)
+        ]
         logger.info(f"Loaded {len(self.documents)} corpus documents")
         
-        # Load Q&A examples
-        logger.info("Loading evaluation examples...")
+        # Load Q&A examples (evaluation-specific)
         with open(examples_path, 'r', encoding='utf-8') as f:
-            all_examples = [orjson.loads(line) for line in f if line.strip()]
+            all_examples = [json.loads(line) for line in f if line.strip()]
         
-        # Shuffle and split (reproducible)
         import random
         random.Random(42).shuffle(all_examples)
         
@@ -264,29 +173,21 @@ class RAGQArenaDataset(BaseDataset):
         if self.max_eval and len(examples) > self.max_eval:
             examples = examples[:self.max_eval]
         
-        # Convert to QAExample objects
         self.eval_examples = []
         for i, ex in enumerate(examples):
-            # For RAGQArena, we use the response as context since
-            # the ground truth is the response itself
             gold_ids = ex.get('gold_doc_ids', [])
-            
-            # Get actual ground truth context from corpus if available
             context = ""
-            if gold_ids and self.documents:
-                # Try to get text from first gold doc
-                for gid in gold_ids:
-                    if gid < len(self.documents):
-                        context = self.documents[gid].text
-                        break
+            for gid in gold_ids:
+                if gid < len(self.documents):
+                    context = self.documents[gid].text
+                    break
             
             self.eval_examples.append(QAExample(
                 question=ex['question'],
                 answer=ex['response'],
-                context=context if context else ex['response'],
+                context=context or ex['response'],
                 example_id=f"ragqa_qa_{i:05d}",
                 gold_doc_ids=gold_ids,
-                metadata={"source": "ragqa_arena_tech"}
             ))
         
         self._loaded = True

@@ -26,16 +26,15 @@ __version__ = "0.1.0"
 
 from .config import Config, ModelConfig, RetrievalConfig, StorageConfig
 from .rag_pipeline import RAGPipeline
-from .data_loader import load_text_file
+from .data_loader import load_text_file, load_jsonl_corpus, load_ragqa_corpus
 
 __all__ = [
-    # Config
     "Config",
     "ModelConfig", 
     "RetrievalConfig",
     "StorageConfig",
-    # Pipeline
     "RAGPipeline",
-    # Data loading
     "load_text_file",
+    "load_jsonl_corpus",
+    "load_ragqa_corpus",
 ]

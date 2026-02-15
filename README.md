@@ -193,6 +193,13 @@ python -m evaluation.run_benchmark --config-file configs/rrf_weight_sweep.json -
 
 See [evaluation/README.md](evaluation/README.md) for detailed documentation on datasets, metrics, config files, and CLI options.
 
+**TODO:**
+- [ ] Add Semantic F1 metric (LLM as a judge)
+- [ ] Add Reranking via cross-encoder, replacing LLM reranker
+- [ ] Compare LLM models
+- [ ] Compare embeding models (via sentence transformer)
+
+
 ## Security
 
 - **Local Processing**: All inference via Ollama

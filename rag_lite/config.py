@@ -53,7 +53,9 @@ def _get_env_str(key: str, default: str) -> str:
 @dataclass
 class ModelConfig:
     """Configuration for AI models."""
-    embedding_model: str = "hf.co/CompendiumLabs/bge-base-en-v1.5-gguf"
+    # HuggingFace model name for sentence-transformers (recommended)
+    # For Ollama, use: "hf.co/CompendiumLabs/bge-base-en-v1.5-gguf"
+    embedding_model: str = "BAAI/bge-base-en-v1.5"
     language_model: str = "hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF"
 
     @classmethod

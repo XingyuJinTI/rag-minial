@@ -2,24 +2,25 @@
 RAG-Lite Evaluation Package
 
 This package provides evaluation tools for RAG systems, including:
-- Dataset loaders (CUAD, SQuAD, custom datasets)
+- Dataset loaders (cat-facts, RAGQArena Tech)
 - Retrieval metrics (Recall@K, MRR, NDCG, Hit Rate)
 - Evaluation runner with comparison capabilities
 
-This is a separate package from the core rag_lite library to keep
-dependencies optional (requires `datasets` package from HuggingFace).
+Supported Datasets:
+- cat_facts: Simple text file with one fact per line (no ground truth Q&A)
+- ragqa_arena: RAGQArena Tech - 28k+ tech docs with Q&A pairs (recommended for evaluation)
 
 Installation:
     pip install rag-lite[eval]
     # or
-    pip install datasets
+    pip install requests orjson
 
 Quick Start:
     >>> from rag_lite import RAGPipeline, Config
     >>> from evaluation import load_dataset, RAGEvaluator
     >>>
-    >>> # Load dataset
-    >>> dataset = load_dataset("cuad", max_examples=100)
+    >>> # Load RAGQArena dataset (recommended for evaluation)
+    >>> dataset = load_dataset("ragqa_arena", max_corpus=5000, max_eval=100)
     >>>
     >>> # Setup pipeline
     >>> config = Config.default()
@@ -39,9 +40,7 @@ from .datasets import (
     Document,
     QAExample,
     CatFactsDataset,
-    CUADDataset,
-    HuggingFaceDataset,
-    CustomDataset,
+    RAGQArenaDataset,
 )
 
 from .metrics import (
@@ -66,9 +65,7 @@ __all__ = [
     "Document",
     "QAExample",
     "CatFactsDataset",
-    "CUADDataset",
-    "HuggingFaceDataset",
-    "CustomDataset",
+    "RAGQArenaDataset",
     # Metrics
     "RetrievalMetrics",
     "calculate_recall_at_k",

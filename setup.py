@@ -27,7 +27,8 @@ core_requirements = [
 
 # Optional evaluation requirements
 eval_requirements = [
-    "datasets>=2.14.0",
+    "requests>=2.25.0",
+    "orjson>=3.9.0",
 ]
 
 setup(

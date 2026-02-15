@@ -200,6 +200,8 @@ python -m evaluation.run_benchmark --config-file configs/rrf_weight_sweep.json -
 See [evaluation/README.md](evaluation/README.md) for detailed documentation on datasets, metrics, config files, and CLI options.
 
 **TODO:**
+
+- [ ] Add `evaluation_batch`, which needs replace chroma
 - [ ] Add proper document chunking (split long docs into overlapping chunks with sentence boundaries)
 - [ ] Add Semantic F1 metric (LLM as a judge)
 - [ ] Add Reranking via cross-encoder, replacing LLM reranker

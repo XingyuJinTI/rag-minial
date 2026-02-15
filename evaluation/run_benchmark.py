@@ -3,22 +3,26 @@
 RAG Evaluation Benchmark
 
 This script demonstrates how to:
-1. Swap between different datasets (cat-facts, CUAD, SQuAD, etc.)
+1. Swap between different datasets (cat-facts, RAGQArena)
 2. Run retrieval evaluation with metrics
 3. Compare different retrieval configurations
 
+Supported Datasets:
+- cat_facts: Simple text file (no ground truth Q&A, for testing indexing)
+- ragqa_arena: RAGQArena Tech - 28k+ tech docs with Q&A pairs (recommended)
+
 Usage:
-    # Run from project root
+    # Full benchmark (all 28k docs, all eval examples)
     python -m evaluation.run_benchmark
     
-    # Or with arguments
-    python -m evaluation.run_benchmark --dataset cuad --max-docs 50 --max-eval 20
+    # Faster run with limited eval examples
+    python -m evaluation.run_benchmark --max-eval 300
     
     # Compare retrieval strategies
-    python -m evaluation.run_benchmark --compare
+    python -m evaluation.run_benchmark --compare --max-eval 100
     
     # Compare with config file
-    python -m evaluation.run_benchmark --config-file configs/rrf_sweep.json
+    python -m evaluation.run_benchmark --config-file configs/rrf_sweep.json --max-eval 100
     
     # Quick test with cat facts
     python -m evaluation.run_benchmark --dataset cat_facts --file cat-facts.txt
@@ -35,7 +39,7 @@ Config File Format (JSON):
 Requirements:
     pip install rag-lite[eval]
     # or
-    pip install datasets
+    pip install requests orjson
 """
 
 import argparse
@@ -126,9 +130,8 @@ def load_config_file(config_path: str) -> List[Dict]:
 
 
 def run_evaluation(
-    dataset_name: str = "cuad",
-    max_documents: Optional[int] = None,
-    max_eval_examples: int = 50,
+    dataset_name: str = "ragqa_arena",
+    max_eval_examples: Optional[int] = None,
     top_k: int = 10,
     file_path: Optional[str] = None,
     compare_configs: bool = False,
@@ -142,10 +145,9 @@ def run_evaluation(
     
     Args:
         dataset_name: Name of the dataset to use
-        max_documents: Maximum documents to index
-        max_eval_examples: Maximum evaluation examples
+        max_eval_examples: Maximum evaluation examples (None = all)
         top_k: Number of results to retrieve per query
-        file_path: File path for cat_facts or custom datasets
+        file_path: File path for cat_facts dataset
         compare_configs: Whether to compare multiple configurations
         config_file: Path to JSON config file with configurations to compare
         use_hybrid: Enable hybrid search (BM25 + semantic)
@@ -163,13 +165,14 @@ def run_evaluation(
     # Load dataset
     print(f"\n--- Loading Dataset: {dataset_name} ---")
     
-    dataset_kwargs = {
-        "max_examples": max_documents,
-        "max_eval_examples": max_eval_examples,
-    }
+    dataset_kwargs = {}
     
-    if dataset_name == "cat_facts" and file_path:
-        dataset_kwargs["file_path"] = file_path
+    if dataset_name == "cat_facts":
+        if file_path:
+            dataset_kwargs["file_path"] = file_path
+    elif dataset_name == "ragqa_arena":
+        if max_eval_examples is not None:
+            dataset_kwargs["max_eval"] = max_eval_examples
     
     try:
         dataset = load_dataset(dataset_name, **dataset_kwargs)
@@ -187,7 +190,7 @@ def run_evaluation(
     if not dataset.has_ground_truth():
         print("\nWarning: This dataset has no ground truth Q&A pairs.")
         print("Evaluation metrics require datasets with labeled questions/answers.")
-        print("Try: --dataset cuad or --dataset squad")
+        print("Try: --dataset ragqa_arena")
         return
     
     # Show sample document and Q&A
@@ -303,17 +306,17 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Evaluate CUAD (legal contracts)
-  python -m evaluation.run_benchmark --dataset cuad --max-docs 50 --max-eval 30
+  # Full benchmark (all 28k docs, all eval examples) - recommended
+  python -m evaluation.run_benchmark
   
-  # Evaluate SQuAD (reading comprehension)
-  python -m evaluation.run_benchmark --dataset squad --max-docs 200 --max-eval 50
+  # Faster run with limited eval examples
+  python -m evaluation.run_benchmark --max-eval 300
   
-  # Compare retrieval configurations (default set)
-  python -m evaluation.run_benchmark --dataset cuad --compare
+  # Compare retrieval configurations
+  python -m evaluation.run_benchmark --compare --max-eval 100
   
   # Compare with custom config file
-  python -m evaluation.run_benchmark --config-file configs/rrf_sweep.json --max-eval 30
+  python -m evaluation.run_benchmark --config-file configs/rrf_sweep.json --max-eval 100
   
   # Quick test with cat facts (no evaluation, just indexing)
   python -m evaluation.run_benchmark --dataset cat_facts --file cat-facts.txt
@@ -333,30 +336,23 @@ Config File Format (JSON):
     parser.add_argument(
         "--dataset", "-d",
         type=str,
-        default="cuad",
-        choices=["cat_facts", "cuad", "squad", "hotpot_qa"],
-        help="Dataset to use (default: cuad)"
+        default="ragqa_arena",
+        choices=["cat_facts", "ragqa_arena"],
+        help="Dataset to use (default: ragqa_arena)"
     )
     
     parser.add_argument(
         "--file", "-f",
         type=str,
         default=None,
-        help="File path for cat_facts or custom dataset"
-    )
-    
-    parser.add_argument(
-        "--max-docs", "-m",
-        type=int,
-        default=None,
-        help="Maximum documents to index (default: all)"
+        help="File path for cat_facts dataset"
     )
     
     parser.add_argument(
         "--max-eval", "-e",
         type=int,
-        default=50,
-        help="Maximum evaluation examples (default: 50)"
+        default=None,
+        help="Maximum evaluation examples (default: all)"
     )
     
     parser.add_argument(
@@ -401,7 +397,6 @@ Config File Format (JSON):
     
     run_evaluation(
         dataset_name=args.dataset,
-        max_documents=args.max_docs,
         max_eval_examples=args.max_eval,
         top_k=args.top_k,
         file_path=args.file,

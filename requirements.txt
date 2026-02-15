@@ -3,4 +3,5 @@ ollama>=0.1.0
 chromadb>=1.0.0
 
 # Optional: For evaluation (install with pip install -e .[eval])
-# datasets>=2.14.0
+# requests>=2.25.0
+# orjson>=3.9.0

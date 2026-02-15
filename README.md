@@ -96,10 +96,17 @@ All settings are configured via environment variables:
 # Ensure Ollama is running
 ollama serve
 
-# Run application
+# Default (cat-facts dataset)
 python main.py
-# or
-rag-lite
+
+# RAGQArena Tech dataset (28k+ tech documents)
+python main.py --dataset ragqa
+
+# Custom text file
+python main.py --file path/to/data.txt
+
+# With hybrid search
+python main.py --dataset ragqa --hybrid --rrf-weight 0.7
 ```
 
 **Programmatic:**
@@ -165,6 +172,33 @@ Reset database:
 ```python
 pipeline.vector_db.clear()
 ```
+
+## Evaluation & Benchmarking
+
+RAG-Lite includes an evaluation suite for measuring retrieval performance with standard IR metrics (Recall@K, MRR, NDCG, Hit Rate).
+
+```bash
+# Install evaluation dependencies
+pip install -e .[eval]
+
+# Full benchmark (all 28k docs, all eval examples)
+python -m evaluation.run_benchmark
+
+# Faster run with limited eval examples
+python -m evaluation.run_benchmark --max-eval 300
+
+# Compare retrieval configurations
+python -m evaluation.run_benchmark --config-file configs/rrf_weight_sweep.json --max-eval 100
+```
+
+See [evaluation/README.md](evaluation/README.md) for detailed documentation on datasets, metrics, config files, and CLI options.
+
+**TODO:**
+- [ ] Add Semantic F1 metric (LLM as a judge)
+- [ ] Add Reranking via cross-encoder, replacing LLM reranker
+- [ ] Compare LLM models
+- [ ] Compare embeding models (via sentence transformer)
+
 
 ## Security
 

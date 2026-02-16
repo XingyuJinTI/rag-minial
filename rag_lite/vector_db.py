@@ -57,11 +57,8 @@ class VectorDB:
         self.collection_name = collection_name
         self.max_chunk_chars = max_chunk_chars or self.MAX_CHUNK_CHARS
         
-        # Initialize sentence-transformers model with best available device
-        device = get_device()
-        logger.info(f"Loading embedding model: {embedding_model} on {device}")
-        self._model = SentenceTransformer(embedding_model, device=device)
-        logger.info(f"Loaded embedding model with dimension {self._model.get_sentence_embedding_dimension()}")
+        # Lazy load embedding model (loaded on first use)
+        self._model = None
         
         # Initialize ChromaDB with persistence
         self._client = chromadb.PersistentClient(
@@ -162,6 +159,20 @@ class VectorDB:
         """Generate a deterministic ID for a chunk."""
         return hashlib.sha256(chunk.encode()).hexdigest()[:16]
 
+    def _get_model(self) -> SentenceTransformer:
+        """
+        Get the embedding model (lazy loading).
+        
+        Model is loaded on first use to avoid startup delay when
+        only searching existing embeddings.
+        """
+        if self._model is None:
+            device = get_device()
+            logger.info(f"Loading embedding model: {self.embedding_model} on {device}")
+            self._model = SentenceTransformer(self.embedding_model, device=device)
+            logger.info(f"Loaded embedding model with dimension {self._model.get_sentence_embedding_dimension()}")
+        return self._model
+
     def _truncate_text(self, text: str) -> str:
         """Truncate text to max_chunk_chars, breaking at word boundary."""
         if len(text) <= self.max_chunk_chars:
@@ -179,13 +190,15 @@ class VectorDB:
     def _get_embedding(self, text: str) -> List[float]:
         """Generate embedding for a single text."""
         text = self._truncate_text(text)
-        embedding = self._model.encode(text, convert_to_numpy=True, show_progress_bar=False)
+        model = self._get_model()
+        embedding = model.encode(text, convert_to_numpy=True, show_progress_bar=False)
         return embedding.tolist()
 
     def _get_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts in parallel."""
         texts = [self._truncate_text(t) for t in texts]
-        embeddings = self._model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
+        model = self._get_model()
+        embeddings = model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
         return embeddings.tolist()
 
     def add_chunk(self, chunk: str) -> None:

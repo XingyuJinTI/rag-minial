@@ -83,10 +83,7 @@ Examples:
         config = Config.default()
         logger.info("Using default configuration")
     
-    # Override config with CLI args
-    # Note: CLI defaults to semantic-only for faster interactive use,
-    # while config defaults to hybrid=True for programmatic use where
-    # quality is typically prioritized over latency.
+    # Override config with CLI args (CLI defaults to semantic-only for speed)
     if args.hybrid:
         config.retrieval.use_hybrid_search = True
         config.retrieval.rrf_weight = args.rrf_weight

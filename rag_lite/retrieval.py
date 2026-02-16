@@ -33,12 +33,7 @@ def _tokenize(text: str) -> List[str]:
 
 
 class BM25Scorer:
-    """
-    BM25 scorer with pre-computed corpus statistics.
-    
-    BM25 (Best Matching 25) is the industry standard for keyword search,
-    used by Elasticsearch, Lucene, and other production systems.
-    """
+    """BM25 scorer with pre-computed corpus statistics."""
     
     def __init__(self, corpus: List[str], k1: float = 1.5, b: float = 0.75):
         """
@@ -119,20 +114,15 @@ def reciprocal_rank_fusion(
     rrf_weight: float = 0.7
 ) -> List[Tuple[str, float]]:
     """
-    Combine multiple ranked lists using Weighted Reciprocal Rank Fusion (RRF).
-    
-    RRF is a robust rank aggregation method. It doesn't require score normalization.
-    
-    Formula: RRF_score(d) = Σ weight_i * 1/(k + rank_i(d))
+    Combine ranked lists using Weighted Reciprocal Rank Fusion.
     
     Args:
-        ranked_lists: List of ranked result lists, each containing (chunk, score) tuples
-        k: Ranking constant (default 60, from original RRF paper)
-        rrf_weight: Weight for semantic (first) list; BM25 (second) gets 1 - rrf_weight
-                   Default 0.7 means semantic=0.7, BM25=0.3
+        ranked_lists: List of (chunk, score) tuples per ranking method
+        k: RRF constant (default 60)
+        rrf_weight: Weight for first list (default 0.7); second gets 1 - rrf_weight
         
     Returns:
-        List of (chunk, rrf_score) tuples, sorted by score descending
+        List of (chunk, rrf_score) tuples, sorted descending
     """
     rrf_scores: Dict[str, float] = {}
     
@@ -258,17 +248,13 @@ def rerank_with_cross_encoder(
     """
     Rerank candidates using a cross-encoder model.
     
-    Cross-encoders are specifically trained for relevance scoring and are
-    much faster and more reliable than LLM-based reranking. The cross-encoder
-    score is used directly as the final score (no blending with original scores).
-    
     Args:
         query: User query
         candidates: List of (chunk, score) tuples from first-stage retrieval
         reranker_model: Name of the cross-encoder model
         
     Returns:
-        List of (chunk, score) tuples, sorted by cross-encoder score descending
+        List of (chunk, score) tuples, sorted by relevance
     """
     if not candidates:
         return []
@@ -280,12 +266,11 @@ def rerank_with_cross_encoder(
     candidate_texts = [chunk.strip() for chunk, _ in candidates]
     pairs = [(query, text) for text in candidate_texts]
     
-    # Get relevance scores from cross-encoder
-    logger.debug(f"Reranking {len(candidates)} candidates with cross-encoder...")
+    # Get relevance scores
+    logger.debug(f"Reranking {len(candidates)} candidates...")
     scores = cross_encoder.predict(pairs, show_progress_bar=False)
     
     # Normalize scores to 0-1 range
-    # Cross-encoder scores can be unbounded, so we normalize them
     min_score, max_score = float(np.min(scores)), float(np.max(scores))
     if max_score > min_score:
         normalized_scores = [(s - min_score) / (max_score - min_score) for s in scores]

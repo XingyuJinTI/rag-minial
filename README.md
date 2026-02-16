@@ -4,8 +4,7 @@ A lightweight, privacy-first Retrieval-Augmented Generation (RAG) system for kno
 
 ## Overview
 
-RAG-Lite provides a modular RAG pipeline with hybrid search capabilities, running entirely on local infrastructure. No data leaves your environment.
-
+RAG-Lite provides a modular RAG pipeline with hybrid search capabilities, running entirely on local infrastructure.
 
 ## Architecture
 
@@ -211,12 +210,12 @@ See [evaluation/README.md](evaluation/README.md) for detailed documentation on d
 
 **TODO:**
 
-- [ ] Add `evaluation_batch`, which needs replace chroma
-- [ ] Add proper document chunking (split long docs into overlapping chunks with sentence boundaries)
-- [ ] Add Semantic F1 metric (LLM as a judge)
-- [x] Add Reranking via cross-encoder, replacing LLM reranker
+- [ ] Add batch evaluation (requires ChromaDB replacement)
+- [ ] Add document chunking with sentence boundaries
+- [ ] Add Semantic F1 metric (LLM-as-judge)
+- [x] Add cross-encoder reranking
 - [ ] Compare LLM models
-- [ ] Compare embeding models (via sentence transformer)
+- [ ] Compare embedding models
 
 
 ## Security

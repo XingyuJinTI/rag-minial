@@ -31,9 +31,7 @@ class VectorDB:
     Data persists across restarts when using a persist_directory.
     """
 
-    # Safety limit for embedding models (chars). 
-    # Very dense text (legal, code): ~1.5-2 chars/token
-    # 500 chars ~= 250-333 tokens, definitely fits 512 token models.
+    # Max chars per chunk (~250-333 tokens, fits 512-token models)
     MAX_CHUNK_CHARS = 500
 
     def __init__(
@@ -160,12 +158,7 @@ class VectorDB:
         return hashlib.sha256(chunk.encode()).hexdigest()[:16]
 
     def _get_model(self) -> SentenceTransformer:
-        """
-        Get the embedding model (lazy loading).
-        
-        Model is loaded on first use to avoid startup delay when
-        only searching existing embeddings.
-        """
+        """Get embedding model (lazy loaded on first use)."""
         if self._model is None:
             device = get_device()
             logger.info(f"Loading embedding model: {self.embedding_model} on {device}")
